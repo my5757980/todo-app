@@ -254,6 +254,7 @@ async def stream_chat(
     # Phase 1: tool call loop (non-streaming for reliable tool_call parsing)
     # -----------------------------------------------------------------------
     max_iterations = 8  # guard against infinite tool loops
+    list_tasks_called = False  # enforce at most one list_tasks call per turn
     for _ in range(max_iterations):
         try:
             response = await client.chat.completions.create(
@@ -302,15 +303,29 @@ async def stream_chat(
                 "tool_name": tool_name,
             })
 
-            # Execute the tool (errors returned as JSON, never raised — FR-008)
-            executor = tool_executors.get(tool_name)
-            if executor:
-                try:
-                    result_str: str = await executor(args)
-                except Exception as exc:  # noqa: BLE001
-                    result_str = json.dumps({"error": str(exc)})
+            # Guard: prevent calling list_tasks more than once per turn.
+            # If the model tries to call it again, return a hard error so it
+            # stops looping and uses the results already in its context.
+            if tool_name == "list_tasks" and list_tasks_called:
+                result_str = json.dumps({
+                    "error": (
+                        "list_tasks was already called this turn. "
+                        "Use the task 'id' values from the previous result "
+                        "to call delete_task, update_task, or toggle_task_complete."
+                    )
+                })
             else:
-                result_str = json.dumps({"error": f"Unknown tool: {tool_name}"})
+                if tool_name == "list_tasks":
+                    list_tasks_called = True
+                # Execute the tool (errors returned as JSON, never raised — FR-008)
+                executor = tool_executors.get(tool_name)
+                if executor:
+                    try:
+                        result_str = await executor(args)
+                    except Exception as exc:  # noqa: BLE001
+                        result_str = json.dumps({"error": str(exc)})
+                else:
+                    result_str = json.dumps({"error": f"Unknown tool: {tool_name}"})
 
             # Parse result for the SSE event (keep as string for DB)
             try:
