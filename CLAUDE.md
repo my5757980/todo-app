@@ -210,8 +210,36 @@ Wait for consent; never auto-create ADRs. Group related decisions (stacks, authe
 See `.specify/memory/constitution.md` for code quality, testing, performance, security, and architecture principles.
 
 ## Active Technologies
-- Python 3.12.6 (as specified in constitution) + Python standard library only (as specified in constitution and spec) (001-console-todo-app)
-- In-memory only (no files, no databases - as specified in constitution) (001-console-todo-app)
+
+### Phase I (001-console-todo-app) — COMPLETE
+- Python 3.12.6 + Python standard library only
+- In-memory only (no files, no databases)
+
+### Phase II (001-todo-web-app) — IN PROGRESS
+- **Frontend**: Next.js 16+ (App Router), TypeScript 5.x, Tailwind CSS, Better Auth
+- **Backend**: Python 3.12.6, FastAPI, SQLModel, SQLAlchemy 2.x (async), Alembic, python-jose
+- **Database**: Neon Serverless PostgreSQL (asyncpg driver, cloud-hosted)
+- **Auth**: Better Auth (frontend) + shared BETTER_AUTH_SECRET JWT verification (backend)
+- **Monorepo**: `/frontend` + `/backend` + `/specs` under repo root
+
+## Monorepo Layout (Phase II)
+```
+/
+├── frontend/          # Next.js 16+ App Router
+├── backend/           # FastAPI + SQLModel
+├── specs/             # SDD artifacts (spec, plan, tasks, contracts)
+├── docker-compose.yml # Local orchestration
+├── .env.example       # Secret template (committed)
+└── .env               # Secret values (git-ignored — NEVER commit)
+```
+
+## Security Rules (Phase II)
+- NEVER hardcode secrets — all via `.env` / environment injection
+- NEVER commit `.env` — only `.env.example`
+- `user_id` ALWAYS injected from JWT via `get_current_user_id` dep — never from request body
+- All task DB queries MUST include `WHERE user_id = :current_user_id`
+- BETTER_AUTH_SECRET must be identical in frontend `.env` and backend `.env`
 
 ## Recent Changes
-- 001-console-todo-app: Added Python 3.12.6 (as specified in constitution) + Python standard library only (as specified in constitution and spec)
+- 001-console-todo-app: Phase I complete — Python 3.12.6 console app with in-memory storage
+- 001-todo-web-app: Phase II scaffolding started — monorepo structure, docker-compose, CLAUDE.md files
