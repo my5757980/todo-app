@@ -45,6 +45,8 @@ SYSTEM_PROMPT = (
     "Use the available tools to read and modify the user's tasks.\n"
     "Always confirm after performing an action with a short, friendly message.\n"
     "Be concise.\n"
+    "IMPORTANT: After creating, deleting, updating, or toggling a task — do NOT call list_tasks to verify. "
+    "Trust the tool result and immediately send a confirmation message to the user.\n"
     "\n"
     "STRICT RULES FOR EDITING/DELETING/TOGGLING TASKS:\n"
     "1. NEVER call create_task when the user wants to edit, update, modify, or change an existing task.\n"
