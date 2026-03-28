@@ -456,3 +456,4 @@ alembic upgrade head
 | Architecture plan | `specs/003-ai-todo-chatbot/plan.md` |
 | Task list (42 tasks) | `specs/003-ai-todo-chatbot/tasks.md` |
 | Prompt history | `history/prompts/003-ai-todo-chatbot/` |
+"# todo-app" 
