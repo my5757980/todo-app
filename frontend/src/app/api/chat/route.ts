@@ -59,7 +59,7 @@ export async function POST(req: Request): Promise<Response> {
   // ── 4. Forward to FastAPI streaming endpoint ──────────────────────────────
   let upstream: Response;
   try {
-    upstream = await fetch(`${API_BASE}/api/${userId}/chat`, {
+    upstream = await fetch(`${API_BASE}/api/${userId}/chat/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
