@@ -39,11 +39,6 @@ export const auth = betterAuth({
    * Email + password authentication only.
    * Social providers are out of scope for Phase II.
    */
-  advanced: {
-    // user.id column is UUID type — use Web Crypto API (works in Node.js + Edge runtimes)
-    generateId: () => globalThis.crypto.randomUUID(),
-  },
-
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
