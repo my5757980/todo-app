@@ -254,14 +254,16 @@ async def stream_chat(
     # Phase 1: tool call loop (non-streaming for reliable tool_call parsing)
     # -----------------------------------------------------------------------
     max_iterations = 8  # guard against infinite tool loops
-    list_tasks_called = False  # enforce at most one list_tasks call per turn
+    # Start with all tools available; remove list_tasks after first use so the
+    # model cannot call it a second time and is forced to act on existing results.
+    active_schemas = list(tool_schemas) if tool_schemas else []
     for _ in range(max_iterations):
         try:
             response = await client.chat.completions.create(
                 model=settings.GROK_MODEL,
                 messages=system + messages,
-                tools=tool_schemas if tool_schemas else None,
-                tool_choice="auto" if tool_schemas else "none",
+                tools=active_schemas if active_schemas else None,
+                tool_choice="auto" if active_schemas else "none",
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("Grok API error in tool loop: %s", exc)
@@ -303,29 +305,20 @@ async def stream_chat(
                 "tool_name": tool_name,
             })
 
-            # Guard: prevent calling list_tasks more than once per turn.
-            # If the model tries to call it again, return a hard error so it
-            # stops looping and uses the results already in its context.
-            if tool_name == "list_tasks" and list_tasks_called:
-                result_str = json.dumps({
-                    "error": (
-                        "list_tasks was already called this turn. "
-                        "Use the task 'id' values from the previous result "
-                        "to call delete_task, update_task, or toggle_task_complete."
-                    )
-                })
+            # After list_tasks runs once, drop it from active_schemas so the
+            # model cannot call it again this turn and must use existing results.
+            if tool_name == "list_tasks":
+                active_schemas = [s for s in active_schemas if s["function"]["name"] != "list_tasks"]
+
+            # Execute the tool (errors returned as JSON, never raised — FR-008)
+            executor = tool_executors.get(tool_name)
+            if executor:
+                try:
+                    result_str: str = await executor(args)
+                except Exception as exc:  # noqa: BLE001
+                    result_str = json.dumps({"error": str(exc)})
             else:
-                if tool_name == "list_tasks":
-                    list_tasks_called = True
-                # Execute the tool (errors returned as JSON, never raised — FR-008)
-                executor = tool_executors.get(tool_name)
-                if executor:
-                    try:
-                        result_str = await executor(args)
-                    except Exception as exc:  # noqa: BLE001
-                        result_str = json.dumps({"error": str(exc)})
-                else:
-                    result_str = json.dumps({"error": f"Unknown tool: {tool_name}"})
+                result_str = json.dumps({"error": f"Unknown tool: {tool_name}"})
 
             # Parse result for the SSE event (keep as string for DB)
             try:
