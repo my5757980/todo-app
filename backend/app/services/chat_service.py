@@ -58,6 +58,13 @@ SYSTEM_PROMPT = (
     "4. If multiple tasks match, ask the user which one they mean.\n"
     "5. If no task matches the name, tell the user and show the current task list.\n"
     "\n"
+    "CRITICAL — TASK ID RULES:\n"
+    "- Every task has an 'id' field which is a UUID string (e.g. 'a1b2c3d4-...').\n"
+    "- When calling delete_task, update_task, get_task, or toggle_task_complete, "
+    "you MUST pass the exact UUID 'id' field from the list_tasks result.\n"
+    "- NEVER pass a number (1, 2, 3...) as task_id. Only the UUID string is valid.\n"
+    "- Example: if list_tasks returns id='abc-123-...', call delete_task with task_id='abc-123-...'.\n"
+    "\n"
     "Never reveal raw UUID values unless the user explicitly asks for them.\n"
     "Never mention that you are an AI tool built on a language model unless asked."
 )
