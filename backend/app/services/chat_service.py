@@ -19,6 +19,7 @@ Streaming wire format (Vercel AI SDK v3 data stream protocol):
 Ref: specs/003-ai-todo-chatbot/spec.md FR-001–FR-008
      specs/003-ai-todo-chatbot/plan.md § Decision 4, § Streaming implementation
 """
+import asyncio
 import json
 import logging
 import uuid
@@ -47,6 +48,8 @@ SYSTEM_PROMPT = (
     "Be concise.\n"
     "IMPORTANT: After creating, deleting, updating, or toggling a task — do NOT call list_tasks to verify. "
     "Trust the tool result and immediately send a confirmation message to the user.\n"
+    "IMPORTANT: Call list_tasks at most ONCE per user request. Once you have the task list, use those results "
+    "immediately — do NOT call list_tasks again.\n"
     "\n"
     "STRICT RULES FOR EDITING/DELETING/TOGGLING TASKS:\n"
     "1. NEVER call create_task when the user wants to edit, update, modify, or change an existing task.\n"
@@ -346,13 +349,19 @@ async def stream_chat(
 
     final_parts: list[str] = []
     try:
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta_content: Optional[str] = chunk.choices[0].delta.content
-            if delta_content:
-                final_parts.append(delta_content)
-                yield f'0:{json.dumps(delta_content)}\n'
+        async with asyncio.timeout(30):
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta_content: Optional[str] = chunk.choices[0].delta.content
+                if delta_content:
+                    final_parts.append(delta_content)
+                    yield f'0:{json.dumps(delta_content)}\n'
+    except asyncio.TimeoutError:
+        logger.warning("Grok streaming timed out after 30s")
+        if not final_parts:
+            yield f'3:{json.dumps({"error": "Response timed out. Please try again."})}\n'
+            return
     except Exception as exc:  # noqa: BLE001
         logger.error("Grok streaming error: %s", exc)
         yield f'3:{json.dumps({"error": "Stream interrupted. Please try again."})}\n'
