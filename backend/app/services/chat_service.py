@@ -43,33 +43,21 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are a helpful todo assistant. You help users manage their task list.\n"
-    "Use the available tools to read and modify the user's tasks.\n"
     "Always confirm after performing an action with a short, friendly message.\n"
     "Be concise.\n"
-    "IMPORTANT: After creating, deleting, updating, or toggling a task — do NOT call list_tasks to verify. "
-    "Trust the tool result and immediately send a confirmation message to the user.\n"
-    "IMPORTANT: Call list_tasks at most ONCE per user request. Once you have the task list, use those results "
-    "immediately — do NOT call list_tasks again.\n"
     "\n"
-    "STRICT RULES FOR EDITING/DELETING/TOGGLING TASKS:\n"
-    "1. NEVER call create_task when the user wants to edit, update, modify, or change an existing task.\n"
-    "2. When the user says 'edit task X', 'update task X', 'change X', 'modify X': "
-    "you MUST first call list_tasks to get all tasks with their IDs, "
-    "find the task matching the user's description by title, "
-    "then call update_task with that task's exact id.\n"
-    "3. Same for delete and toggle — always call list_tasks first to get the task id.\n"
-    "4. If multiple tasks match, ask the user which one they mean.\n"
-    "5. If no task matches the name, tell the user and show the current task list.\n"
+    "The user's CURRENT TASK LIST is injected at the end of this system message before every request.\n"
+    "Each task has an 'id' (UUID string) and a 'title'. Use those IDs directly.\n"
     "\n"
-    "CRITICAL — TASK ID RULES:\n"
-    "- Every task has an 'id' field which is a UUID string (e.g. 'a1b2c3d4-...').\n"
-    "- When calling delete_task, update_task, get_task, or toggle_task_complete, "
-    "you MUST pass the exact UUID 'id' field from the list_tasks result.\n"
-    "- NEVER pass a number (1, 2, 3...) as task_id. Only the UUID string is valid.\n"
-    "- Example: if list_tasks returns id='abc-123-...', call delete_task with task_id='abc-123-...'.\n"
-    "\n"
-    "Never reveal raw UUID values unless the user explicitly asks for them.\n"
-    "Never mention that you are an AI tool built on a language model unless asked."
+    "RULES:\n"
+    "1. To delete a task: call delete_task with the task's exact UUID 'id'.\n"
+    "2. To update a task: call update_task with the task's exact UUID 'id'.\n"
+    "3. To toggle complete: call toggle_task_complete with the task's exact UUID 'id'.\n"
+    "4. To create a new task: call create_task.\n"
+    "5. NEVER pass a number (1, 2, 3...) as task_id — only the UUID string.\n"
+    "6. NEVER call create_task when the user wants to edit an existing task.\n"
+    "7. After performing any action, send a short confirmation. Do NOT call any tool to verify.\n"
+    "8. Never reveal raw UUID values unless explicitly asked.\n"
 )
 
 
@@ -244,7 +232,26 @@ async def stream_chat(
     Ref: specs/003-ai-todo-chatbot/plan.md § Streaming implementation
     """
     client = _make_grok_client(settings)
-    system = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Pre-load the task list and inject it into the system prompt so the model
+    # can call delete_task/update_task/toggle directly without a list_tasks
+    # round-trip, cutting Groq API calls from 4 to 2 per message.
+    task_list_context = ""
+    list_executor = tool_executors.get("list_tasks")
+    if list_executor:
+        try:
+            task_list_raw = await list_executor({})
+            task_data = json.loads(task_list_raw)
+            tasks = task_data.get("tasks", [])
+            if tasks:
+                lines = [f"  - id={t['id']} | title={t['title']} | done={t['is_complete']}" for t in tasks]
+                task_list_context = "\n\nCURRENT TASKS:\n" + "\n".join(lines)
+            else:
+                task_list_context = "\n\nCURRENT TASKS: (none)"
+        except Exception:
+            pass  # if pre-load fails, model falls back to calling list_tasks
+
+    system = [{"role": "system", "content": SYSTEM_PROMPT + task_list_context}]
     messages = build_agent_messages(history, new_message)
 
     # Track the user's new message for persistence
@@ -254,8 +261,8 @@ async def stream_chat(
     # Phase 1: tool call loop (non-streaming for reliable tool_call parsing)
     # -----------------------------------------------------------------------
     max_iterations = 8  # guard against infinite tool loops
-    # Start with all tools available; remove list_tasks after first use so the
-    # model cannot call it a second time and is forced to act on existing results.
+    # list_tasks is still available as a fallback but model should not need it.
+    # Remove it after first use to prevent loops.
     active_schemas = list(tool_schemas) if tool_schemas else []
     for _ in range(max_iterations):
         try:
